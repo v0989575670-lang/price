@@ -104,9 +104,9 @@ class CoupangScraper(BaseScraper):
             logger.info("coupang broad-locator extracted count=%s", len(results))
 
             if not results:
-                self._save_debug(page, "no_results")
+self._save_debug(page, f"results_{len(results)}")
 
-            return results
+return results
 
         except Exception as e:
             logger.exception("coupang scraper failed: %s", e)
