@@ -1,23 +1,10 @@
-"""
-全聯線購（pxgo）爬蟲
-====================
-search URL: https://www.pxgo.com.tw/search?query=...
-
-優先：JSON-LD
-備援：CSS selector
-"""
-
 from __future__ import annotations
 
 import logging
+import re
 
 from src.filter import ProductCandidate
-from src.scrapers.base import (
-    BaseScraper,
-    clean_text,
-    common_search_flow,
-    parse_price,
-)
+from src.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -26,71 +13,165 @@ class PxmartScraper(BaseScraper):
     name = "pxmart"
     label = "全聯"
 
+    SEARCH_URL = "https://pxbox.es.pxmart.com.tw/"
+
+    REQUIRED = ["光泉", "保久", "200"]
+
+    EXCLUDE = [
+        "蘋果", "珍穀", "堅果", "巧克力", "麥芽", "調味",
+        "乳飲品", "飲品", "豆漿", "燕麥", "芝麻", "糙米",
+        "薏仁", "高鈣", "低脂", "多口味", "萬丹", "福樂",
+        "台東初鹿", "東海大學"
+    ]
+
+    PACK_KEYWORDS = ["24入", "24 入", "24瓶", "24罐", "24瓶/箱", "24"]
+
     def search(self, query: str) -> list[ProductCandidate]:
-        url = self.build_url(query)
-        return common_search_flow(
-            self.browser,
-            url,
-            query,
-            self.name,
-            fallback_parser=self._css_fallback,
-            extra_wait_sec=3.0,   # pxgo 是 SPA，等久一點
+        page = self.browser.new_page(
+            viewport={"width": 1280, "height": 900},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/148.0.0.0 Safari/537.36"
+            ),
         )
 
-    def _css_fallback(self, page) -> list[ProductCandidate]:
-        candidates: list[ProductCandidate] = []
-        possible_card_selectors = [
-            ".product-card",
-            ".product-item",
-            "[class*='ProductCard']",
-            "[class*='product-card']",
-            "li.product",
-            "article.product",
-        ]
-        items = []
-        for sel in possible_card_selectors:
-            items = page.query_selector_all(sel)
-            if items:
-                logger.info("pxmart 用 %s 找到 %d 個元素", sel, len(items))
-                break
-        if not items:
-            return []
+        try:
+            logger.info("pxmart open homepage")
+            page.goto(self.SEARCH_URL, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(5000)
 
-        for it in items[:40]:
-            try:
-                title = ""
-                for ts in [".product-name", ".name", "h3", "[class*='title']", "[class*='name']", "a"]:
-                    el = it.query_selector(ts)
-                    if el:
-                        title = clean_text(el.inner_text())
-                        if title:
-                            break
+            # 找搜尋框
+            search_inputs = [
+                "input[type='search']",
+                "input[placeholder*='搜尋']",
+                "input[placeholder*='請輸入']",
+                "input",
+            ]
 
-                price_text = ""
-                for ps in [".price", "[class*='price']", "[class*='Price']"]:
-                    el = it.query_selector(ps)
-                    if el:
-                        price_text = clean_text(el.inner_text())
-                        if price_text:
-                            break
-                price = parse_price(price_text)
+            filled = False
+            for sel in search_inputs:
+                try:
+                    el = page.locator(sel).first
+                    if el.count() > 0:
+                        el.click(timeout=3000)
+                        el.fill("保久乳")
+                        el.press("Enter")
+                        filled = True
+                        logger.info("pxmart search input used: %s", sel)
+                        break
+                except Exception:
+                    continue
 
-                link_el = it.query_selector("a[href]")
-                href = link_el.get_attribute("href") if link_el else None
-                if href and href.startswith("/"):
-                    href = "https://www.pxgo.com.tw" + href
+            if not filled:
+                logger.warning("pxmart search input not found")
+                return []
 
-                if title and price:
-                    candidates.append(
+            page.wait_for_timeout(8000)
+
+            for _ in range(5):
+                page.mouse.wheel(0, 1200)
+                page.wait_for_timeout(1000)
+
+            # 用所有可能的商品卡片區塊掃描
+            elements = page.locator("div, a, li")
+            count = elements.count()
+            logger.info("pxmart elements count=%s", count)
+
+            results: list[ProductCandidate] = []
+            seen = set()
+
+            for i in range(min(count, 800)):
+                try:
+                    el = elements.nth(i)
+                    text = el.inner_text(timeout=1000)
+                    text = re.sub(r"\s+", " ", text or "").strip()
+
+                    if not text:
+                        continue
+
+                    if "光泉" not in text:
+                        continue
+
+                    logger.info("pxmart card text=%s", text[:200])
+
+                    if not all(k in text for k in self.REQUIRED):
+                        continue
+
+                    if any(k in text for k in self.EXCLUDE):
+                        continue
+
+                    if not any(k in text for k in self.PACK_KEYWORDS):
+                        logger.info("pxmart skip no pack keyword: %s", text[:120])
+                        continue
+
+                    prices = re.findall(r"\$+\s*([0-9,]+)", text)
+                    valid_prices = []
+
+                    for p in prices:
+                        try:
+                            v = int(p.replace(",", ""))
+                            if v >= 300:
+                                valid_prices.append(v)
+                        except Exception:
+                            pass
+
+                    if not valid_prices:
+                        logger.info("pxmart skip no valid price: %s", text[:120])
+                        continue
+
+                    price = min(valid_prices)
+                    title = self._extract_title(text)
+
+                    if not title:
+                        continue
+
+                    key = f"{title}-{price}"
+                    if key in seen:
+                        continue
+                    seen.add(key)
+
+                    href = ""
+                    try:
+                        link = el.locator("a[href]").first
+                        if link.count() > 0:
+                            href = link.get_attribute("href") or ""
+                    except Exception:
+                        pass
+
+                    if href.startswith("/"):
+                        href = "https://pxbox.es.pxmart.com.tw" + href
+
+                    results.append(
                         ProductCandidate(
                             title=title,
                             price=price,
                             list_price=price,
-                            url=href or "",
+                            url=href or self.SEARCH_URL,
                             promo_tags=[],
+                            raw={"text": text},
                         )
                     )
-            except Exception as e:
-                logger.debug("pxmart 解析錯誤：%s", e)
-                continue
-        return candidates
+
+                    logger.info("pxmart matched title=%s price=%s", title, price)
+
+                except Exception:
+                    continue
+
+            logger.info("pxmart final results=%s", len(results))
+            return results
+
+        except Exception as e:
+            logger.exception("pxmart scraper failed: %s", e)
+            return []
+
+        finally:
+            page.close()
+
+    def _extract_title(self, text: str) -> str:
+        parts = re.split(r"\$|首購價|贈品|補貨|購物車|加入", text)
+        for p in parts:
+            p = re.sub(r"\s+", " ", p).strip()
+            if "光泉" in p and "保久" in p and "200" in p:
+                return p[:120]
+        return text[:120]
