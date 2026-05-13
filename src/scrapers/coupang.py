@@ -64,7 +64,7 @@ class CoupangScraper(BaseScraper):
     ]
 
     def search(self, query: str) -> list[ProductCandidate]:
-        search_query = "光泉 無調整保久乳 24入"
+        search_query = "光泉 無調整 保久乳"
         url = self.SEARCH_BASE + quote(search_query)
 
         # ★ 酷澎專用 context：不設 locale，避免被重導向到 www.tw.coupang.com
