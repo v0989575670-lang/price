@@ -58,17 +58,17 @@ channels:
 
   - name: pxmart
     label: 全聯
-    enabled: true
+    enabled: false
     search_url: "https://www.pxgo.com.tw/search?query={query}"
 
   - name: carrefour
     label: 家樂福
     enabled: true
-    search_url: "https://online.carrefour.com.tw/zh/search/?text={query}"
+    search_url: "https://online.carrefour.com.tw/zh/search/?q={query}"
 
   - name: coupang
     label: 酷澎
-    enabled: true
+    enabled: false
     search_url: "https://www.tw.coupang.com/np/search?q={query}"
 
 abnormal_price_ratio: 0.7
