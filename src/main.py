@@ -103,6 +103,9 @@ def process_one_product(product: dict, config: dict, browser) -> list[dict]:
 
                 best=filt.pick_best_match(candidates,product,ch_name)
                 if best is None:
+    logger.info("[%s] pick_best_match 回傳 None，candidates=%d 筆", ch_label, len(candidates))  # ← 加這行
+    row["note"] = "未找到符合規格的商品"
+                    
                     row["note"] = "未找到符合規格的商品"
                 else:
                     row["matched_title"] = best.title
