@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
@@ -19,7 +18,6 @@ class CoupangScraper(BaseScraper):
 
     SEARCH_BASE = "https://tw.coupang.com/np/search?q="
 
-    # 移除 "200"：酷澎卡片常把 200ml 和標題分開顯示，合併後不一定出現
     REQUIRED = ["光泉"]
 
     MUST_ANY = [
@@ -27,7 +25,6 @@ class CoupangScraper(BaseScraper):
         "成分無調整",
         "全脂",
         "保久",
-        "牛乳",
     ]
 
     EXCLUDE = [
@@ -38,24 +35,23 @@ class CoupangScraper(BaseScraper):
         "麥芽",
         "燕麥",
         "豆漿",
-        "飲品",
         "調味",
         "高鈣",
         "低脂",
     ]
 
-    # 大幅擴充，涵蓋酷澎常見箱裝／多入寫法
+    # 大幅擴充：涵蓋酷澎常見的箱裝/多入寫法
     PACK_KEYWORDS = [
-        "24入", "24 入", "24瓶", "24罐", "24盒", "24件",
-        "x24", "X24", "×24", "*24",
+        "24入", "24 入", "24瓶", "24罐", "24盒",
+        "24件", "x24", "X24", "×24", "*24",
         "6入x4", "6入 x4", "6入×4", "6入*4", "6入X4",
         "6盒x4", "6罐x4",
         "200mlx6入", "200ml x6入", "200mlx24",
-        "x4組", "×4組", "4組",
-        "一箱", "整箱", "箱購", "箱裝",
+        "x4組", "×4組", "4組", "一箱", "整箱",
+        "箱購", "箱裝",
     ]
 
-    # 酷澎商品卡常見 CSS selector（依優先順序）
+    # 酷澎商品卡常見 CSS selectors（多個備用）
     CARD_SELECTORS = [
         "[class*='ProductCard']",
         "[class*='product-card']",
@@ -68,9 +64,6 @@ class CoupangScraper(BaseScraper):
         "li[data-product-id]",
     ]
 
-    # ─────────────────────────────────────────
-    # 主入口
-    # ─────────────────────────────────────────
     def search(self, query: str) -> list[ProductCandidate]:
         search_query = "光泉 無調整保久乳 24入"
         url = self.SEARCH_BASE + quote(search_query)
@@ -94,27 +87,21 @@ class CoupangScraper(BaseScraper):
                 page.mouse.wheel(0, 1200)
                 page.wait_for_timeout(800)
 
-            body_text = page.locator("body").inner_text(timeout=5000)
-            logger.info(
-                "coupang body preview=%s",
-                re.sub(r"\s+", " ", body_text)[:800],
-            )
-
-            # ── 策略 1：從 JS window.__INITIAL_STATE__ 或 JSON-LD 抽取 ──
+            # ── 策略 1：嘗試用 window.__INITIAL_STATE__ 或 JSON-LD ──
             results = self._try_extract_from_js(page, url)
             if results:
-                logger.info("coupang js-state count=%s", len(results))
+                logger.info("coupang js-state extracted count=%s", len(results))
                 return results
 
-            # ── 策略 2：精準 CSS selector 定位商品卡 ──
+            # ── 策略 2：嘗試精準 CSS selector ──
             results = self._try_card_selectors(page, url)
             if results:
-                logger.info("coupang card-selector count=%s", len(results))
+                logger.info("coupang card-selector extracted count=%s", len(results))
                 return results
 
-            # ── 策略 3：fallback 寬泛 locator（放寬 pack 邏輯）──
+            # ── 策略 3：fallback — 原本的寬泛 locator，但放寬 PACK filter ──
             results = self._try_broad_locator(page, url)
-            logger.info("coupang broad-locator count=%s", len(results))
+            logger.info("coupang broad-locator extracted count=%s", len(results))
 
             if not results:
                 self._save_debug(page, "no_results")
@@ -132,24 +119,29 @@ class CoupangScraper(BaseScraper):
         finally:
             page.close()
 
-    # ─────────────────────────────────────────
-    # 策略 1：JS state / JSON-LD
-    # ─────────────────────────────────────────
+    # ────────────────────────────────────────────
+    # 策略 1：從 JS 全域變數抽取商品資料
+    # ────────────────────────────────────────────
     def _try_extract_from_js(self, page, base_url: str) -> list[ProductCandidate]:
+        """
+        酷澎 SPA 通常把搜尋結果放在 window.__INITIAL_STATE__
+        或 <script type="application/ld+json"> JSON-LD 裡
+        """
         results: list[ProductCandidate] = []
 
-        # 1a. window.__INITIAL_STATE__ 或 __PRELOADED_STATE__
+        # 1a. 嘗試 window.__INITIAL_STATE__
         try:
-            raw = page.evaluate(
-                "() => {"
-                "  const s = window.__INITIAL_STATE__ || window.__PRELOADED_STATE__;"
-                "  return s ? JSON.stringify(s) : null;"
-                "}"
-            )
+            raw = page.evaluate("""
+                () => {
+                    const s = window.__INITIAL_STATE__ || window.__PRELOADED_STATE__;
+                    return s ? JSON.stringify(s) : null;
+                }
+            """)
             if raw:
+                import json
                 state = json.loads(raw)
                 items = self._walk_for_products(state)
-                logger.info("coupang __INITIAL_STATE__ candidates=%s", len(items))
+                logger.info("coupang __INITIAL_STATE__ product candidates=%s", len(items))
                 for item in items:
                     c = self._candidate_from_dict(item, base_url)
                     if c:
@@ -159,28 +151,26 @@ class CoupangScraper(BaseScraper):
         except Exception as e:
             logger.debug("coupang js-state failed: %s", e)
 
-        # 1b. JSON-LD <script> tags
+        # 1b. 嘗試 JSON-LD
         try:
             scripts = page.locator("script[type='application/ld+json']")
             for i in range(scripts.count()):
-                try:
-                    text = scripts.nth(i).inner_text(timeout=1000)
-                    data = json.loads(text)
-                    items_ld = data if isinstance(data, list) else [data]
-                    for item in items_ld:
-                        if item.get("@type") in ("Product", "ItemList"):
-                            c = self._candidate_from_jsonld(item, base_url)
-                            if c:
-                                results.append(c)
-                except Exception:
-                    continue
+                text = scripts.nth(i).inner_text(timeout=1000)
+                import json
+                data = json.loads(text)
+                items_ld = data if isinstance(data, list) else [data]
+                for item in items_ld:
+                    if item.get("@type") in ("Product", "ItemList"):
+                        c = self._candidate_from_jsonld(item, base_url)
+                        if c:
+                            results.append(c)
         except Exception as e:
             logger.debug("coupang json-ld failed: %s", e)
 
         return results
 
-    def _walk_for_products(self, obj, depth: int = 0) -> list[dict]:
-        """遞迴走訪 JS state，找含 productName/price 的 dict"""
+    def _walk_for_products(self, obj, depth=0):
+        """遞迴走訪 JS state，找含 productName/itemName 的 dict"""
         if depth > 8:
             return []
         results = []
@@ -188,14 +178,14 @@ class CoupangScraper(BaseScraper):
             name_key = next(
                 (k for k in obj if k in (
                     "productName", "itemName", "name", "title",
-                    "productTitle", "displayName",
+                    "productTitle", "displayName"
                 )),
                 None,
             )
             price_key = next(
                 (k for k in obj if k in (
                     "salePrice", "price", "offerPrice",
-                    "basePrice", "originalPrice",
+                    "basePrice", "originalPrice"
                 )),
                 None,
             )
@@ -212,13 +202,13 @@ class CoupangScraper(BaseScraper):
     def _candidate_from_dict(self, d: dict, base_url: str):
         name_key = next(
             (k for k in d if k in (
-                "productName", "itemName", "name", "title", "productTitle",
+                "productName", "itemName", "name", "title", "productTitle"
             )),
             None,
         )
         price_key = next(
             (k for k in d if k in (
-                "salePrice", "price", "offerPrice", "basePrice",
+                "salePrice", "price", "offerPrice", "basePrice"
             )),
             None,
         )
@@ -235,7 +225,7 @@ class CoupangScraper(BaseScraper):
             return None
 
         url = d.get("productUrl") or d.get("url") or base_url
-        if isinstance(url, str) and url.startswith("/"):
+        if url.startswith("/"):
             url = "https://tw.coupang.com" + url
 
         return ProductCandidate(
@@ -267,9 +257,9 @@ class CoupangScraper(BaseScraper):
             raw={"source": "json_ld"},
         )
 
-    # ─────────────────────────────────────────
-    # 策略 2：精準 CSS selector
-    # ─────────────────────────────────────────
+    # ────────────────────────────────────────────
+    # 策略 2：精準 CSS selector 抓商品卡
+    # ────────────────────────────────────────────
     def _try_card_selectors(self, page, base_url: str) -> list[ProductCandidate]:
         for selector in self.CARD_SELECTORS:
             try:
@@ -279,17 +269,18 @@ class CoupangScraper(BaseScraper):
                     continue
 
                 logger.info("coupang selector=%s count=%s", selector, count)
-                results: list[ProductCandidate] = []
-                seen: set[str] = set()
+                results = []
+                seen = set()
 
                 for i in range(min(count, 200)):
                     try:
                         el = els.nth(i)
-                        text = re.sub(
-                            r"\s+", " ", el.inner_text(timeout=1000) or ""
-                        ).strip()
+                        text = re.sub(r"\s+", " ", el.inner_text(timeout=1000) or "").strip()
                         if not text:
                             continue
+
+                        logger.debug("coupang card[%s] text=%s", i, text[:200])
+
                         c = self._parse_card_text(text, el, base_url, seen)
                         if c:
                             results.append(c)
@@ -304,39 +295,37 @@ class CoupangScraper(BaseScraper):
 
         return []
 
-    # ─────────────────────────────────────────
-    # 策略 3：寬泛 locator（原本邏輯 + 放寬 pack）
-    # ─────────────────────────────────────────
+    # ────────────────────────────────────────────
+    # 策略 3：原本寬泛 locator（放寬 pack filter）
+    # ────────────────────────────────────────────
     def _try_broad_locator(self, page, base_url: str) -> list[ProductCandidate]:
         elements = page.locator("li, div, a")
         count = elements.count()
         logger.info("coupang broad locator count=%s", count)
 
         results: list[ProductCandidate] = []
-        seen: set[str] = set()
+        seen = set()
 
         for i in range(min(count, 2000)):
             try:
                 el = elements.nth(i)
-                text = re.sub(
-                    r"\s+", " ", el.inner_text(timeout=800) or ""
-                ).strip()
+                text = re.sub(r"\s+", " ", el.inner_text(timeout=800) or "").strip()
                 if not text or len(text) < 10:
                     continue
+
                 c = self._parse_card_text(text, el, base_url, seen)
                 if c:
                     results.append(c)
+
             except Exception:
                 continue
 
         return results
 
-    # ─────────────────────────────────────────
-    # 共用：解析一段 card text → ProductCandidate
-    # ─────────────────────────────────────────
-    def _parse_card_text(
-        self, text: str, el, base_url: str, seen: set
-    ):
+    # ────────────────────────────────────────────
+    # 共用：解析一段 card text
+    # ────────────────────────────────────────────
+    def _parse_card_text(self, text: str, el, base_url: str, seen: set):
         if not self._passes_filter(text):
             return None
 
@@ -380,9 +369,6 @@ class CoupangScraper(BaseScraper):
             raw={"text": text},
         )
 
-    # ─────────────────────────────────────────
-    # Filter 邏輯
-    # ─────────────────────────────────────────
     def _passes_filter(self, text: str) -> bool:
         if not all(k in text for k in self.REQUIRED):
             return False
@@ -391,25 +377,31 @@ class CoupangScraper(BaseScraper):
         if any(k in text for k in self.EXCLUDE):
             return False
 
-        # 先比對 PACK_KEYWORDS
-        if any(k in text for k in self.PACK_KEYWORDS):
-            return True
+        has_pack = any(k in text for k in self.PACK_KEYWORDS)
+        # 額外容錯：數字+入/盒/瓶/罐（例如 12入、48入）
+        if not has_pack:
+            if re.search(r"\d+\s*[入盒瓶罐件]", text):
+                qty_match = re.search(r"(\d+)\s*[入盒瓶罐件]", text)
+                if qty_match:
+                    qty = int(qty_match.group(1))
+                    if qty >= 12:  # 至少 12 入才算箱購
+                        has_pack = True
 
-        # 容錯：數字 + 入/盒/瓶/罐/件，且數量 >= 12
-        m = re.search(r"(\d+)\s*[入盒瓶罐件]", text)
-        if m and int(m.group(1)) >= 12:
-            return True
+        if not has_pack:
+            logger.warning("coupang skip no pack keyword: %s", text[:300])
+            return False
 
-        logger.warning("coupang skip no pack keyword: %s", text[:300])
-        return False
+        return True
 
-    # ─────────────────────────────────────────
-    # 價格抽取（支援 $、NT$、數字+元）
-    # ─────────────────────────────────────────
     def _extract_prices(self, text: str) -> list[int]:
+        """
+        酷澎價格格式可能是：
+        - $467  /  NT$467  /  NT$ 467
+        - 467元  /  467 元
+        """
         prices = []
 
-        # $467 或 NT$467
+        # 格式 1：$ 或 NT$ 開頭
         for p in re.findall(r"(?:NT)?\$\s*([0-9,]+)", text):
             try:
                 v = int(p.replace(",", ""))
@@ -418,7 +410,7 @@ class CoupangScraper(BaseScraper):
             except Exception:
                 pass
 
-        # 467元
+        # 格式 2：數字+元
         for p in re.findall(r"([0-9,]+)\s*元", text):
             try:
                 v = int(p.replace(",", ""))
@@ -429,9 +421,6 @@ class CoupangScraper(BaseScraper):
 
         return list(set(prices))
 
-    # ─────────────────────────────────────────
-    # Title 抽取
-    # ─────────────────────────────────────────
     def _extract_title(self, text: str) -> str:
         parts = re.split(
             r"\$|首購|折扣|火箭速配|明天|評分|免運|優惠券|NT\$|加入購物車",
@@ -443,9 +432,6 @@ class CoupangScraper(BaseScraper):
                 return p[:120]
         return text[:120]
 
-    # ─────────────────────────────────────────
-    # Debug 存檔
-    # ─────────────────────────────────────────
     def _save_debug(self, page, reason: str) -> None:
         try:
             debug_dir = Path("debug")
@@ -456,8 +442,7 @@ class CoupangScraper(BaseScraper):
                 full_page=True,
             )
             (debug_dir / f"coupang_{ts}_{reason}.html").write_text(
-                page.content(),
-                encoding="utf-8",
+                page.content(), encoding="utf-8"
             )
             logger.info("coupang debug saved reason=%s", reason)
         except Exception as e:
