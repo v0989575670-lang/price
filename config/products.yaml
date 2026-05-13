@@ -1,49 +1,46 @@
-# =============================================================================
-# 多通路價格監控設定檔
-# =============================================================================
-
 products:
   - name: "光泉 成分無調整 保久乳 200ml × 24 入"
     short_name: "光泉保久乳200ml*24"
-    search_keywords: ["光泉", "保久乳", "200ml"]
-    must_include: ["光泉", "保久乳"]
-    must_include_any: ["200ml", "200 ml", "200ML", "200cc"]
-    pack_keywords: ["24入", "24瓶", "24罐", "24 入", "整箱", "箱裝"]
+    search_keywords:
+      - "光泉"
+      - "保久乳"
+      - "200ml"
+    must_include:
+      - "光泉"
+      - "200"
+    pack_keywords:
+      - "24入"
+      - "24 入"
+      - "24瓶"
+      - "24罐"
+      - "24入/箱"
+      - "24人/箱"
+      - "箱"
     must_exclude:
       - "調味"
       - "巧克力"
       - "麥芽"
       - "果汁"
       - "豆奶"
-      - "豆漿"       # 排除黑豆漿、鮮豆漿等
+      - "豆漿"
       - "黑豆"
-      - "糙米"       # 排除糙米漿、薏仁糙米漿
-      - "薏仁"
-      - "多口味"     # MILK 多口味系列
-      - "黑芝麻"
+      - "鮮豆漿"
       - "低脂"
       - "高鈣"
-      - "保久調味乳"
-      - "草莓"
-      - "香蕉"
-      - "咖啡"
+      - "多口味"
+      - "糙米"
+      - "薏仁"
+      - "黑芝麻"
+      - "珍穀"
+      - "堅果"
+      - "乳飲品"
+      - "保久乳飲品"
+      - "飲品"
+      - "植物奶"
 
 recipients:
-  - shao087776@mail.kcdairy.com.tw
-  - v0989575670@gmail.com
-
-first_purchase_keywords:
-  - "首購"
-  - "首次"
-  - "首單"
-  - "新客"
-  - "新會員"
-  - "新人"
-  - "新戶"
-  - "註冊禮"
-  - "首次下單"
-  - "限首購"
-  - "新用戶"
+  - "shao087776@mail.kcdairy.com.tw"
+  - "v0989575670@gmail.com"
 
 channels:
   - name: momo
@@ -60,7 +57,7 @@ channels:
     label: 全聯
     enabled: true
     search_url: "https://www.pxgo.com.tw/search?query={query}"
-    
+
   - name: carrefour
     label: 家樂福
     enabled: true
@@ -70,5 +67,14 @@ channels:
     label: 酷澎
     enabled: true
     search_url: "https://www.tw.coupang.com/np/search?q={query}"
+
+first_purchase_keywords:
+  - "首購"
+  - "新客"
+  - "新會員"
+  - "首次下單"
+  - "首單"
+  - "新人"
+  - "新戶"
 
 abnormal_price_ratio: 0.7
