@@ -34,6 +34,7 @@ class PxmartScraper(BaseScraper):
     ]
 
     def search(self, query: str) -> list[ProductCandidate]:
+
         url = self.SEARCH_BASE + quote("保久乳")
 
         page = self.browser.new_page(
@@ -46,9 +47,15 @@ class PxmartScraper(BaseScraper):
         )
 
         try:
+
             logger.info("pxmart direct search url=%s", url)
 
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.goto(
+                url,
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
+
             page.wait_for_timeout(10000)
 
             for _ in range(8):
@@ -56,57 +63,121 @@ class PxmartScraper(BaseScraper):
                 page.wait_for_timeout(800)
 
             body_text = page.locator("body").inner_text(timeout=5000)
-            logger.info("pxmart body preview=%s", re.sub(r"\s+", " ", body_text)[:800])
+
+            logger.info(
+                "pxmart body preview=%s",
+                re.sub(r"\s+", " ", body_text)[:800]
+            )
 
             elements = page.locator("div, a, li")
+
             count = elements.count()
+
             logger.info("pxmart elements count=%s", count)
 
             results: list[ProductCandidate] = []
+
             seen = set()
 
             for i in range(min(count, 1500)):
+
                 try:
+
                     el = elements.nth(i)
+
                     text = el.inner_text(timeout=800)
-                    text = re.sub(r"\s+", " ", text or "").strip()
+
+                    text = re.sub(
+                        r"\s+",
+                        " ",
+                        text or ""
+                    ).strip()
 
                     if not text or "光泉" not in text:
                         continue
 
-                    logger.info("pxmart card text=%s", text[:220])
+                    logger.info(
+                        "pxmart card text=%s",
+                        text[:220]
+                    )
 
+                    # 必要字
                     if not all(k in text for k in self.REQUIRED):
                         continue
 
+                    # 排除字
                     if any(k in text for k in self.EXCLUDE):
                         continue
 
+                    # 必須有24入概念
                     if not any(k in text for k in self.PACK_KEYWORDS):
-                        logger.info("pxmart skip no pack keyword: %s", text[:160])
+
+                        logger.info(
+                            "pxmart skip no pack keyword: %s",
+                            text[:160]
+                        )
+
                         continue
 
-                    prices = re.findall(r"\$\s*([0-9,]+)", text)
+                    prices = re.findall(
+                        r"\$\s*([0-9,]+)",
+                        text
+                    )
+
                     valid_prices = []
 
                     for p in prices:
+
                         try:
-                            v = int(p.replace(",", ""))
+
+                            v = int(
+                                p.replace(",", "")
+                            )
+
+                            # 避免抓到200ml之類
                             if v >= 300:
                                 valid_prices.append(v)
+
                         except Exception:
                             pass
 
                     if not valid_prices:
-                        logger.info("pxmart skip no valid price: %s", text[:160])
+
+                        logger.info(
+                            "pxmart skip no valid price: %s",
+                            text[:160]
+                        )
+
                         continue
 
-                    price = min(valid_prices)
+                    # PXMart:
+                    # $460
+                    # $360 折後價
+                    # 首購最高折$100
+                    #
+                    # 不採信首購價
+                    price = max(valid_prices)
+
+                    promo_tags = []
+
+                    if len(valid_prices) >= 2:
+
+                        normal_price = max(valid_prices)
+                        promo_price = min(valid_prices)
+
+                        if promo_price < normal_price:
+
+                            promo_tags.append(
+                                f"首購/折後價${promo_price}不採信"
+                            )
+
                     title = self._extract_title(text)
 
                     key = f"{title}-{price}"
+
                     if key in seen:
                         continue
+
                     seen.add(key)
 
                     results.append(
@@ -115,17 +186,24 @@ class PxmartScraper(BaseScraper):
                             price=price,
                             list_price=price,
                             url=url,
-                            promo_tags=[],
+                            promo_tags=promo_tags,
                             raw={"text": text},
                         )
                     )
 
-                    logger.info("pxmart matched title=%s price=%s", title, price)
+                    logger.info(
+                        "pxmart matched title=%s price=%s",
+                        title,
+                        price
+                    )
 
                 except Exception:
                     continue
 
-            logger.info("pxmart final results=%s", len(results))
+            logger.info(
+                "pxmart final results=%s",
+                len(results)
+            )
 
             if not results:
                 self._save_debug(page, "no_results")
@@ -133,31 +211,75 @@ class PxmartScraper(BaseScraper):
             return results
 
         except Exception as e:
-            logger.exception("pxmart scraper failed: %s", e)
+
+            logger.exception(
+                "pxmart scraper failed: %s",
+                e
+            )
+
             try:
                 self._save_debug(page, "exception")
             except Exception:
                 pass
+
             return []
 
         finally:
+
             page.close()
 
     def _extract_title(self, text: str) -> str:
-        parts = re.split(r"\$|首購價|贈品|補貨|購物車|加入|收藏", text)
+
+        parts = re.split(
+            r"\$|首購價|折後價|贈品|補貨|購物車|加入|收藏",
+            text
+        )
+
         for p in parts:
+
             p = re.sub(r"\s+", " ", p).strip()
-            if "光泉" in p and "保久" in p and "200" in p:
+
+            if (
+                "光泉" in p
+                and "保久" in p
+                and "200" in p
+            ):
                 return p[:120]
+
         return text[:120]
 
     def _save_debug(self, page, reason: str) -> None:
+
         try:
+
             debug_dir = Path("debug")
+
             debug_dir.mkdir(exist_ok=True)
+
             ts = int(time.time())
-            page.screenshot(path=str(debug_dir / f"pxmart_{ts}_{reason}.png"), full_page=True)
-            (debug_dir / f"pxmart_{ts}_{reason}.html").write_text(page.content(), encoding="utf-8")
-            logger.info("pxmart debug saved reason=%s", reason)
+
+            page.screenshot(
+                path=str(
+                    debug_dir / f"pxmart_{ts}_{reason}.png"
+                ),
+                full_page=True
+            )
+
+            (
+                debug_dir / f"pxmart_{ts}_{reason}.html"
+            ).write_text(
+                page.content(),
+                encoding="utf-8"
+            )
+
+            logger.info(
+                "pxmart debug saved reason=%s",
+                reason
+            )
+
         except Exception as e:
-            logger.warning("pxmart debug save failed: %s", e)
+
+            logger.warning(
+                "pxmart debug save failed: %s",
+                e
+            )
