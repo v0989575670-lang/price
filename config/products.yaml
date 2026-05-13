@@ -70,6 +70,40 @@ products:
 
         pack_keywords: []
 
+      pxmart:
+        must_include:
+          - "光泉"
+          - "200"
+
+        must_include_any:
+          - "成份無調整"
+          - "成分無調整"
+          - "保久"
+          - "全脂"
+
+        pack_keywords:
+          - "24入"
+          - "24 入"
+          - "4組"
+          - "200mlx6入x4組"
+
+      coupang:
+        must_include:
+          - "光泉"
+          - "200"
+
+        must_include_any:
+          - "成份無調整"
+          - "成分無調整"
+          - "保久"
+          - "全脂"
+
+        pack_keywords:
+          - "24入"
+          - "24 入"
+          - "24瓶"
+          - "24"
+
 recipients:
   - "shao087776@mail.kcdairy.com.tw"
   - "v0989575670@gmail.com"
@@ -98,7 +132,7 @@ channels:
   - name: coupang
     label: 酷澎
     enabled: true
-    search_url: "https://www.tw.coupang.com/np/search?q={query}"
+    search_url: "https://tw.coupang.com/np/search?q={query}"
 
 first_purchase_keywords:
   - "首購"
