@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from src.filter import ProductCandidate
-from src.scrapers.base import BaseScraper
+from src.scrapers.base import BaseScraper, new_context, save_debug
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +67,9 @@ class CoupangScraper(BaseScraper):
         search_query = "光泉 無調整保久乳 24入"
         url = self.SEARCH_BASE + quote(search_query)
 
-        page = self.browser.new_page(
-            viewport={"width": 1280, "height": 900},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-        )
+        # ★ 改用 new_context()，與其他通路隔離，避免 session 污染
+        context = new_context(self.browser)
+        page = context.new_page()
 
         try:
             logger.info("coupang url=%s", url)
@@ -88,32 +83,33 @@ class CoupangScraper(BaseScraper):
             results = self._try_extract_from_js(page, url)
             if results:
                 logger.info("coupang js-state extracted count=%s", len(results))
-                self._save_debug(page, f"results_{len(results)}")
+                save_debug(page, search_query, "coupang", f"results_{len(results)}")
                 return results
 
             results = self._try_card_selectors(page, url)
             if results:
                 logger.info("coupang card-selector extracted count=%s", len(results))
-                self._save_debug(page, f"results_{len(results)}")
+                save_debug(page, search_query, "coupang", f"results_{len(results)}")
                 return results
 
             results = self._try_broad_locator(page, url)
             logger.info("coupang broad-locator extracted count=%s", len(results))
 
-            self._save_debug(page, f"results_{len(results)}")
+            # 無論有無結果都存 debug
+            save_debug(page, search_query, "coupang", f"results_{len(results)}")
 
             return results
 
         except Exception as e:
             logger.exception("coupang scraper failed: %s", e)
             try:
-                self._save_debug(page, "exception")
+                save_debug(page, search_query, "coupang", "exception")
             except Exception:
                 pass
             return []
 
         finally:
-            page.close()
+            context.close()  # ★ 關 context 而不只是 page
 
     def _try_extract_from_js(self, page, base_url: str) -> list[ProductCandidate]:
         results: list[ProductCandidate] = []
@@ -392,20 +388,3 @@ class CoupangScraper(BaseScraper):
             if "光泉" in p and len(p) > 5:
                 return p[:120]
         return text[:120]
-
-    def _save_debug(self, page, reason: str) -> None:
-        try:
-            debug_dir = Path("debug")
-            debug_dir.mkdir(exist_ok=True)
-            ts = int(time.time())
-            page.screenshot(
-                path=str(debug_dir / f"coupang_{ts}_{reason}.png"),
-                full_page=True,
-            )
-            (debug_dir / f"coupang_{ts}_{reason}.html").write_text(
-                page.content(),
-                encoding="utf-8",
-            )
-            logger.info("coupang debug saved reason=%s", reason)
-        except Exception as e:
-            logger.warning("coupang debug save failed: %s", e)
