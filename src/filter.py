@@ -1,9 +1,5 @@
 """
 商品過濾與首購偵測模組
-======================
-1. 從爬蟲回傳的商品候選中，挑出最符合規格的那一筆
-2. 偵測商品標題 / 促銷標籤是否有「首購、新客」等字眼
-3. 與歷史價格比較，判斷是否為異常低價
 """
 
 from __future__ import annotations
@@ -15,13 +11,12 @@ from typing import Iterable
 
 @dataclass
 class ProductCandidate:
-    """單一爬蟲回傳的候選商品"""
-    title: str               # 商品名稱
-    price: float | None      # 顯示價（None 表示沒抓到）
-    list_price: float | None # 標價 / 原價（沒有就跟 price 一樣）
-    url: str                 # 商品頁連結
-    promo_tags: list[str]    # 促銷標籤文字（首購、限時等）
-    raw: dict | None = None  # 原始資料供 debug
+    title: str
+    price: float | None
+    list_price: float | None
+    url: str
+    promo_tags: list[str]
+    raw: dict | None = None
 
 
 def contains_any(text: str, keywords: Iterable[str]) -> bool:
@@ -34,46 +29,71 @@ def contains_all(text: str, keywords: Iterable[str]) -> bool:
     return all(k.lower() in text for k in keywords)
 
 
+def merge_channel_rules(product_config: dict, channel_name: str) -> dict:
+    """
+    合併共用規則 + 通路專屬規則
+    """
+
+    result = {
+        "must_include": list(product_config.get("must_include", [])),
+        "must_include_any": list(product_config.get("must_include_any", [])),
+        "must_exclude": list(product_config.get("must_exclude", [])),
+        "pack_keywords": list(product_config.get("pack_keywords", [])),
+    }
+
+    channel_rules = product_config.get("channel_rules", {})
+    rule = channel_rules.get(channel_name, {})
+
+    for k in result.keys():
+        if k in rule:
+            result[k] = rule[k]
+
+    return result
+
+
 def pick_best_match(
     candidates: list[ProductCandidate],
     product_config: dict,
+    channel_name: str = "",
 ) -> ProductCandidate | None:
-    """
-    從一堆候選商品中，挑出最符合條件的那一個。
 
-    篩選順序：
-    1. 名稱必須包含 must_include 裡的所有字
-    2. 名稱必須包含 must_include_any 裡至少一個字
-    3. 名稱不能包含 must_exclude 裡任何字
-    4. 含 pack_keywords 的優先（例如「24入」）
-    5. 同條件下，price 較低的優先（通常代表整箱單瓶單價）
-    """
-    must_include = product_config.get("must_include", [])
-    must_include_any = product_config.get("must_include_any", [])
-    must_exclude = product_config.get("must_exclude", [])
-    pack_keywords = product_config.get("pack_keywords", [])
+    rules = merge_channel_rules(product_config, channel_name)
+
+    must_include = rules.get("must_include", [])
+    must_include_any = rules.get("must_include_any", [])
+    must_exclude = rules.get("must_exclude", [])
+    pack_keywords = rules.get("pack_keywords", [])
 
     filtered: list[ProductCandidate] = []
+
     for c in candidates:
         title = c.title or ""
+
         if must_include and not contains_all(title, must_include):
             continue
+
         if must_include_any and not contains_any(title, must_include_any):
             continue
+
         if must_exclude and contains_any(title, must_exclude):
             continue
+
         filtered.append(c)
 
     if not filtered:
         return None
 
-    # 排序：先看有沒有 pack_keywords，再看價格
     def sort_key(c: ProductCandidate):
-        has_pack = 1 if (pack_keywords and contains_any(c.title, pack_keywords)) else 0
+        has_pack = 1 if (
+            pack_keywords and contains_any(c.title, pack_keywords)
+        ) else 0
+
         price = c.price if c.price is not None else float("inf")
+
         return (-has_pack, price)
 
     filtered.sort(key=sort_key)
+
     return filtered[0]
 
 
@@ -81,8 +101,11 @@ def detect_first_purchase(
     candidate: ProductCandidate,
     first_purchase_keywords: list[str],
 ) -> bool:
-    """偵測商品是否為首購 / 新客優惠"""
-    text_to_check = " ".join([candidate.title or ""] + (candidate.promo_tags or []))
+
+    text_to_check = " ".join(
+        [candidate.title or ""] + (candidate.promo_tags or [])
+    )
+
     return contains_any(text_to_check, first_purchase_keywords)
 
 
@@ -92,13 +115,13 @@ def is_abnormal_price(
     ratio: float = 0.7,
     min_samples: int = 3,
 ) -> bool:
-    """
-    判斷是否為異常低價。
-    若歷史樣本不足，不判斷異常。
-    """
+
     if not history_prices or len(history_prices) < min_samples:
         return False
+
     median = statistics.median(history_prices)
+
     if median <= 0:
         return False
+
     return current_price < median * ratio
