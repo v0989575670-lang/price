@@ -17,7 +17,8 @@ class CoupangScraper(BaseScraper):
     name = "coupang"
     label = "酷澎"
 
-    SEARCH_BASE = "https://tw.coupang.com/np/search?q="
+    # ★ 修改點 1：改用行動版搜尋網址
+    SEARCH_BASE = "https://m.tw.coupang.com/nm/search?q="
 
     REQUIRED = ["光泉"]
 
@@ -67,24 +68,20 @@ class CoupangScraper(BaseScraper):
         search_query = "光泉 無調整 保久乳"
         url = self.SEARCH_BASE + quote(search_query)
 
-        # ★ 酷澎進階偽裝 context：補齊標準瀏覽器特徵與在地化參數，降低 Akamai 觸發 Access Denied 機率
+        # ★ 修改點 2：全面偽裝成 iPhone 上的 Safari 瀏覽器特徵
         context = self.browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 900},
+            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1",
+            viewport={"width": 393, "height": 852}, # iPhone 15 標準解析度
             locale="zh-TW",
             timezone_id="Asia/Taipei",
+            is_mobile=True,
+            has_touch=True,
             extra_http_headers={
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Cache-Control": "max-age=0",
-                "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-                "Sec-Ch-Ua-Mobile": "?0",
-                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-TW,zh-Hant;q=0.9",
                 "Sec-Fetch-Dest": "document",
                 "Sec-Fetch-Mode": "navigate",
                 "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1",
-                "Upgrade-Insecure-Requests": "1"
             }
         )
         page = context.new_page()
