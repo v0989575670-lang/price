@@ -14,22 +14,12 @@ class CarrefourScraper(BaseScraper):
 
     SEARCH_BASE = "https://online.carrefour.com.tw/zh/search/?q="
 
-    REQUIRED_KEYWORDS = [
+    REQUIRED = [
         "光泉",
         "保久",
-        "200",
     ]
 
-    PREFER_KEYWORDS = [
-        "24",
-        "24入",
-        "24 入",
-        "24瓶",
-        "24罐",
-        "箱",
-    ]
-
-    EXCLUDE_KEYWORDS = [
+    EXCLUDE = [
         "蘋果",
         "珍穀",
         "堅果",
@@ -42,111 +32,138 @@ class CarrefourScraper(BaseScraper):
         "燕麥",
     ]
 
+    PREFER_24 = [
+        "24",
+        "24入",
+        "24 入",
+        "箱",
+    ]
+
     def search(self, query: str) -> list[ProductCandidate]:
+
+        search_query = "光泉 保久乳"
+
+        url = self.SEARCH_BASE + quote(search_query)
+
+        logger.info("carrefour url=%s", url)
 
         page = self.browser.new_page()
 
         try:
 
-            search_query = "光泉 保久乳 200ml"
-
-            url = self.SEARCH_BASE + quote(search_query)
-
-            logger.info("carrefour search: %s", url)
-
             page.goto(
                 url,
-                wait_until="networkidle",
+                wait_until="domcontentloaded",
                 timeout=60000,
             )
 
-            page.mouse.wheel(0, 3000)
+            page.wait_for_timeout(5000)
 
-            html = page.content()
+            page.mouse.wheel(0, 4000)
 
-            # 抓商品區塊
-            cards = re.findall(
-                r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-                html,
-                re.S,
-            )
+            page.wait_for_timeout(3000)
 
-            candidates: list[ProductCandidate] = []
+            cards = page.locator("a")
 
-            for href, block in cards:
+            count = cards.count()
 
-                text = re.sub(r"<[^>]+>", " ", block)
-                text = re.sub(r"\s+", " ", text).strip()
+            logger.info("carrefour locator count=%s", count)
 
-                if not text:
-                    continue
+            results = []
 
-                # 必要關鍵字
-                if not all(k in text for k in self.REQUIRED_KEYWORDS):
-                    continue
+            for i in range(count):
 
-                # 排除關鍵字
-                if any(k in text for k in self.EXCLUDE_KEYWORDS):
-                    continue
+                try:
 
-                # 必須有 24 入相關
-                if not any(k in text for k in self.PREFER_KEYWORDS):
-                    continue
+                    el = cards.nth(i)
 
-                # 抓價格
-                prices = re.findall(r"\$([0-9]+)", text)
+                    text = el.inner_text(timeout=1000)
 
-                valid_prices = []
+                    if not text:
+                        continue
 
-                for p in prices:
-                    try:
-                        v = int(p)
+                    text = re.sub(r"\s+", " ", text)
 
-                        # 避免抓到 200ml
-                        if v >= 300:
-                            valid_prices.append(v)
+                    logger.info("carrefour card=%s", text[:120])
 
-                    except:
-                        pass
+                    # 必要字
+                    if not all(k in text for k in self.REQUIRED):
+                        continue
 
-                if not valid_prices:
-                    continue
+                    # 排除字
+                    if any(k in text for k in self.EXCLUDE):
+                        continue
 
-                price = min(valid_prices)
+                    # 必須有24入概念
+                    if not any(k in text for k in self.PREFER_24):
+                        continue
 
-                # 完整網址
-                if href.startswith("/"):
-                    product_url = "https://online.carrefour.com.tw" + href
-                else:
-                    product_url = href
+                    # 抓價格
+                    prices = re.findall(r"\$?\s*([0-9]{3,5})", text)
 
-                logger.info(
-                    "carrefour matched title=%s price=%s",
-                    text[:100],
-                    price,
-                )
+                    valid_prices = []
 
-                candidates.append(
-                    ProductCandidate(
-                        title=text[:200],
-                        price=price,
-                        list_price=price,
-                        url=product_url,
-                        promo_tags=[],
-                        raw={"text": text},
+                    for p in prices:
+
+                        try:
+                            v = int(p)
+
+                            # 避免抓200ml
+                            if v >= 300:
+                                valid_prices.append(v)
+
+                        except:
+                            pass
+
+                    if not valid_prices:
+                        continue
+
+                    price = min(valid_prices)
+
+                    href = el.get_attribute("href")
+
+                    if not href:
+                        continue
+
+                    if href.startswith("/"):
+                        href = "https://online.carrefour.com.tw" + href
+
+                    logger.info(
+                        "carrefour matched title=%s price=%s",
+                        text[:120],
+                        price,
                     )
-                )
+
+                    results.append(
+                        ProductCandidate(
+                            title=text[:200],
+                            price=price,
+                            list_price=price,
+                            url=href,
+                            promo_tags=[],
+                            raw={"text": text},
+                        )
+                    )
+
+                except Exception:
+                    pass
 
             logger.info(
-                "carrefour final candidates=%d",
-                len(candidates),
+                "carrefour final results=%s",
+                len(results),
             )
 
-            return candidates
+            return results
 
         except Exception as e:
-            logger.exception("carrefour scraper failed: %s", e)
+
+            logger.exception(
+                "carrefour scraper failed: %s",
+                e,
+            )
+
             return []
 
         finally:
+
             page.close()
