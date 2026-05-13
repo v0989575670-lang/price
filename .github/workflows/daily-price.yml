@@ -17,6 +17,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # 完整歷史，rebase 需要
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -55,10 +57,21 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/price_history.csv || true
+          git add data/price_history.csv 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "No changes to commit."
-          else
-            git commit -m "chore: update price history $(TZ=Asia/Taipei date +'%Y-%m-%d %H:%M')"
-            git push
+            exit 0
           fi
+          git commit -m "chore: update price history $(TZ=Asia/Taipei date +'%Y-%m-%d %H:%M')"
+          # 重試 3 次，每次失敗就先 pull --rebase 再 push
+          for i in 1 2 3; do
+            if git push; then
+              echo "Push succeeded on attempt $i"
+              exit 0
+            fi
+            echo "Push attempt $i failed, pulling and rebasing..."
+            git pull --rebase origin main || true
+            sleep 2
+          done
+          echo "Push failed after 3 attempts"
+          exit 1
