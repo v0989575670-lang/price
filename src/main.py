@@ -101,11 +101,9 @@ def process_one_product(product: dict, config: dict, browser) -> list[dict]:
                 candidates = scraper.search(query)
                 logger.info("[%s] 回傳 %d 筆候選", ch_label, len(candidates))
 
-                best=filt.pick_best_match(candidates,product,ch_name)
+                best = filt.pick_best_match(candidates, product, ch_name)
                 if best is None:
-    logger.info("[%s] pick_best_match 回傳 None，candidates=%d 筆", ch_label, len(candidates))  # ← 加這行
-    row["note"] = "未找到符合規格的商品"
-                    
+                    logger.info("[%s] 過濾後無結果，candidates=%d 筆", ch_label, len(candidates))
                     row["note"] = "未找到符合規格的商品"
                 else:
                     row["matched_title"] = best.title
@@ -132,6 +130,21 @@ def process_one_product(product: dict, config: dict, browser) -> list[dict]:
             row["note"] = f"爬蟲錯誤：{type(e).__name__}"
 
         rows.append(row)
+
+        # 寫歷史紀錄（無論成功失敗都寫，方便追蹤）
+        history_records.append(
+            storage.make_record(
+                product=product_name,
+                channel=ch_name,
+                matched_title=row["matched_title"],
+                list_price=row["list_price"],
+                display_price=row["display_price"],
+                is_first_purchase=row["is_first_purchase"],
+                is_abnormal=row["is_abnormal"],
+                url=row["url"],
+                note=row["note"],
+            )
+        )
 
     # 一次寫入
     storage.append_records(history_records)
