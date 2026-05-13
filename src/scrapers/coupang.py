@@ -27,7 +27,25 @@ class CoupangScraper(BaseScraper):
         "豆漿", "飲品", "調味", "高鈣", "低脂"
     ]
 
-    PACK_KEYWORDS = ["24入", "24 入", "24人", "24瓶", "24罐", "24"]
+PACK_KEYWORDS = [
+    "24入",
+    "24 入",
+    "24瓶",
+    "24罐",
+    "24",
+
+    # 酷澎常見寫法
+    "6入x4",
+    "6入 x4",
+    "6入×4",
+    "6入*4",
+
+    "200mlx6入",
+    "200ml x6入",
+
+    "x4組",
+    "4組",
+]
 
     def search(self, query: str) -> list[ProductCandidate]:
         search_query = "光泉 無調整保久乳"
@@ -73,6 +91,8 @@ class CoupangScraper(BaseScraper):
 
                     if "光泉" not in text:
                         continue
+                        if "200" not in text:
+    continue
 
                     logger.info("coupang card text=%s", text[:220])
 
@@ -86,7 +106,10 @@ class CoupangScraper(BaseScraper):
                         continue
 
                     if not any(k in text for k in self.PACK_KEYWORDS):
-                        logger.info("coupang skip no pack keyword: %s", text[:160])
+                logger.warning(
+    "coupang skip no pack keyword: %s",
+    text[:300]
+)
                         continue
 
                     prices = re.findall(r"\$\s*([0-9,]+)", text)
