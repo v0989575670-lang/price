@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from src.filter import ProductCandidate
-from src.scrapers.base import BaseScraper, new_context, save_debug
+from src.scrapers.base import BaseScraper, save_debug
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +67,30 @@ class CoupangScraper(BaseScraper):
         search_query = "光泉 無調整保久乳 24入"
         url = self.SEARCH_BASE + quote(search_query)
 
-        # ★ 改用 new_context()，與其他通路隔離，避免 session 污染
-        context = new_context(self.browser)
+        # ★ 酷澎專用 context：不設 locale，避免被重導向到 www.tw.coupang.com
+        context = self.browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 900},
+            # 不設 locale / timezone_id，讓酷澎用預設判斷地區
+        )
         page = context.new_page()
 
         try:
             logger.info("coupang url=%s", url)
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(5000)
+
+            # 確認有沒有被重導向
+            current_url = page.url
+            logger.info("coupang current_url=%s", current_url)
+            if "Access Denied" in page.title() or "access" in current_url.lower() and "denied" in page.content().lower():
+                logger.error("coupang Access Denied，存 debug")
+                save_debug(page, search_query, "coupang", "access_denied")
+                return []
 
             for _ in range(6):
                 page.mouse.wheel(0, 1200)
@@ -95,7 +111,6 @@ class CoupangScraper(BaseScraper):
             results = self._try_broad_locator(page, url)
             logger.info("coupang broad-locator extracted count=%s", len(results))
 
-            # 無論有無結果都存 debug
             save_debug(page, search_query, "coupang", f"results_{len(results)}")
 
             return results
@@ -109,7 +124,7 @@ class CoupangScraper(BaseScraper):
             return []
 
         finally:
-            context.close()  # ★ 關 context 而不只是 page
+            context.close()
 
     def _try_extract_from_js(self, page, base_url: str) -> list[ProductCandidate]:
         results: list[ProductCandidate] = []
