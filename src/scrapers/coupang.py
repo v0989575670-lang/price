@@ -82,6 +82,21 @@ class CoupangScraper(BaseScraper):
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(5000)
 
+# 暫時加入，確認頁面結構後再移除
+html = page.content()
+# 找所有含「光泉」的 element
+hits = page.locator("*").filter(has_text="光泉")
+logger.info("coupang elements with 光泉 count=%s", hits.count())
+for i in range(min(hits.count(), 5)):
+    el = hits.nth(i)
+    logger.info(
+        "coupang 光泉 element[%s] tag=%s class=%s text=%s",
+        i,
+        el.evaluate("el => el.tagName"),
+        el.evaluate("el => el.className"),
+        el.inner_text(timeout=500)[:200],
+    )
+            
             # 滾動觸發 lazy load
             for _ in range(6):
                 page.mouse.wheel(0, 1200)
