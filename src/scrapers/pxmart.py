@@ -24,7 +24,21 @@ class PxmartScraper(BaseScraper):
         "台東初鹿", "東海大學"
     ]
 
-    PACK_KEYWORDS = ["24入", "24 入", "24瓶", "24罐", "24瓶/箱", "24"]
+    PACK_KEYWORDS=[
+    "24入",
+    "24 入",
+    "24瓶",
+    "24罐",
+    "24瓶/箱",
+    "24",
+    "6入)x4",
+    "6入x4",
+    "6入 x4",
+    "6入)x4組",
+    "x4組",
+    "×4組",
+    "200mlx6入",
+]
 
     def search(self, query: str) -> list[ProductCandidate]:
         page = self.browser.new_page(
@@ -55,7 +69,7 @@ class PxmartScraper(BaseScraper):
                     el = page.locator(sel).first
                     if el.count() > 0:
                         el.click(timeout=3000)
-                        el.fill("保久乳")
+                        el.fill("光泉 保久乳")
                         el.press("Enter")
                         filled = True
                         logger.info("pxmart search input used: %s", sel)
