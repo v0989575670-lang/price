@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from pathlib import Path
 
 from src.filter import ProductCandidate
 from src.scrapers.base import BaseScraper
@@ -24,70 +26,74 @@ class PxmartScraper(BaseScraper):
         "台東初鹿", "東海大學"
     ]
 
-    PACK_KEYWORDS=[
-    "24入",
-    "24 入",
-    "24瓶",
-    "24罐",
-    "24瓶/箱",
-    "24",
-    "6入)x4",
-    "6入x4",
-    "6入 x4",
-    "6入)x4組",
-    "x4組",
-    "×4組",
-    "200mlx6入",
-]
+    PACK_KEYWORDS = [
+        "24入", "24 入", "24瓶", "24罐", "24瓶/箱", "24",
+        "6入)x4", "6入x4", "6入 x4", "6入)x4組",
+        "x4組", "×4組", "200mlx6入"
+    ]
 
     def search(self, query: str) -> list[ProductCandidate]:
         page = self.browser.new_page(
-            viewport={"width": 1280, "height": 900},
+            viewport={"width": 390, "height": 900},
             user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/148.0.0.0 Safari/537.36"
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                "Version/17.0 Mobile/15E148 Safari/604.1"
             ),
         )
 
         try:
             logger.info("pxmart open homepage")
             page.goto(self.SEARCH_URL, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(8000)
 
-            # 找搜尋框
-            search_inputs = [
+            # 嘗試點搜尋框
+            search_text = "光泉 保久乳"
+
+            input_selectors = [
                 "input[type='search']",
                 "input[placeholder*='搜尋']",
-                "input[placeholder*='請輸入']",
                 "input",
+                "textarea",
             ]
 
             filled = False
-            for sel in search_inputs:
+
+            for sel in input_selectors:
                 try:
-                    el = page.locator(sel).first
-                    if el.count() > 0:
-                        el.click(timeout=3000)
-                        el.fill("光泉 保久乳")
-                        el.press("Enter")
+                    loc = page.locator(sel).first
+                    if loc.count() > 0:
+                        loc.click(timeout=5000)
+                        loc.fill(search_text)
+                        page.wait_for_timeout(1000)
+                        loc.press("Enter")
                         filled = True
-                        logger.info("pxmart search input used: %s", sel)
+                        logger.info("pxmart filled search by selector=%s", sel)
                         break
-                except Exception:
-                    continue
+                except Exception as e:
+                    logger.info("pxmart input selector failed %s: %s", sel, e)
+
+            # 如果 Enter 沒作用，改點搜尋文字
+            try:
+                page.get_by_text("搜尋").click(timeout=3000)
+                logger.info("pxmart clicked search text button")
+            except Exception:
+                pass
 
             if not filled:
                 logger.warning("pxmart search input not found")
+                self._save_debug(page, "input_not_found")
                 return []
 
-            page.wait_for_timeout(8000)
+            page.wait_for_timeout(10000)
 
-            for _ in range(5):
-                page.mouse.wheel(0, 1200)
-                page.wait_for_timeout(1000)
+            for _ in range(8):
+                page.mouse.wheel(0, 1000)
+                page.wait_for_timeout(800)
 
-            # 用所有可能的商品卡片區塊掃描
+            body_text = page.locator("body").inner_text(timeout=5000)
+            logger.info("pxmart body preview=%s", re.sub(r'\s+', ' ', body_text)[:500])
+
             elements = page.locator("div, a, li")
             count = elements.count()
             logger.info("pxmart elements count=%s", count)
@@ -95,10 +101,10 @@ class PxmartScraper(BaseScraper):
             results: list[ProductCandidate] = []
             seen = set()
 
-            for i in range(min(count, 800)):
+            for i in range(min(count, 1200)):
                 try:
                     el = elements.nth(i)
-                    text = el.inner_text(timeout=1000)
+                    text = el.inner_text(timeout=800)
                     text = re.sub(r"\s+", " ", text or "").strip()
 
                     if not text:
@@ -116,10 +122,10 @@ class PxmartScraper(BaseScraper):
                         continue
 
                     if not any(k in text for k in self.PACK_KEYWORDS):
-                        logger.info("pxmart skip no pack keyword: %s", text[:120])
+                        logger.info("pxmart skip no pack keyword: %s", text[:150])
                         continue
 
-                    prices = re.findall(r"\$+\s*([0-9,]+)", text)
+                    prices = re.findall(r"\$\s*([0-9,]+)", text)
                     valid_prices = []
 
                     for p in prices:
@@ -131,7 +137,7 @@ class PxmartScraper(BaseScraper):
                             pass
 
                     if not valid_prices:
-                        logger.info("pxmart skip no valid price: %s", text[:120])
+                        logger.info("pxmart skip no valid price: %s", text[:150])
                         continue
 
                     price = min(valid_prices)
@@ -145,11 +151,13 @@ class PxmartScraper(BaseScraper):
                         continue
                     seen.add(key)
 
-                    href = ""
+                    href = self.SEARCH_URL
                     try:
                         link = el.locator("a[href]").first
                         if link.count() > 0:
-                            href = link.get_attribute("href") or ""
+                            href2 = link.get_attribute("href") or ""
+                            if href2:
+                                href = href2
                     except Exception:
                         pass
 
@@ -161,7 +169,7 @@ class PxmartScraper(BaseScraper):
                             title=title,
                             price=price,
                             list_price=price,
-                            url=href or self.SEARCH_URL,
+                            url=href,
                             promo_tags=[],
                             raw={"text": text},
                         )
@@ -173,19 +181,40 @@ class PxmartScraper(BaseScraper):
                     continue
 
             logger.info("pxmart final results=%s", len(results))
+
+            if not results:
+                self._save_debug(page, "no_results")
+
             return results
 
         except Exception as e:
             logger.exception("pxmart scraper failed: %s", e)
+            try:
+                self._save_debug(page, "exception")
+            except Exception:
+                pass
             return []
 
         finally:
             page.close()
 
     def _extract_title(self, text: str) -> str:
-        parts = re.split(r"\$|首購價|贈品|補貨|購物車|加入", text)
+        parts = re.split(r"\$|首購價|贈品|補貨|購物車|加入|收藏", text)
         for p in parts:
             p = re.sub(r"\s+", " ", p).strip()
             if "光泉" in p and "保久" in p and "200" in p:
                 return p[:120]
         return text[:120]
+
+    def _save_debug(self, page, reason: str) -> None:
+        try:
+            debug_dir = Path("debug")
+            debug_dir.mkdir(exist_ok=True)
+            ts = int(time.time())
+            png = debug_dir / f"pxmart_{ts}_{reason}.png"
+            html = debug_dir / f"pxmart_{ts}_{reason}.html"
+            page.screenshot(path=str(png), full_page=True)
+            html.write_text(page.content(), encoding="utf-8")
+            logger.info("pxmart debug saved: %s / %s", png, html)
+        except Exception as e:
+            logger.warning("pxmart debug save failed: %s", e)
