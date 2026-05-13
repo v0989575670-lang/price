@@ -133,21 +133,6 @@ def process_one_product(product: dict, config: dict, browser) -> list[dict]:
 
         rows.append(row)
 
-        # 寫歷史紀錄（無論成功失敗都寫，方便追蹤）
-        history_records.append(
-            storage.make_record(
-                product=product_name,
-                channel=ch_name,
-                matched_title=row["matched_title"],
-                list_price=row["list_price"],
-                display_price=row["display_price"],
-                is_first_purchase=row["is_first_purchase"],
-                is_abnormal=row["is_abnormal"],
-                url=row["url"],
-                note=row["note"],
-            )
-        )
-
     # 一次寫入
     storage.append_records(history_records)
 
