@@ -101,7 +101,7 @@ def process_one_product(product: dict, config: dict, browser) -> list[dict]:
                 candidates = scraper.search(query)
                 logger.info("[%s] 回傳 %d 筆候選", ch_label, len(candidates))
 
-                best = filt.pick_best_match(candidates, product)
+                best=filt.pick_best_match(candidates,product,ch_name)
                 if best is None:
                     row["note"] = "未找到符合規格的商品"
                 else:
