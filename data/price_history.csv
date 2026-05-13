@@ -1,0 +1,6 @@
+timestamp,date,time,product,channel,matched_title,list_price,display_price,is_first_purchase,is_abnormal,url,note
+2026-05-13T09:14:59,2026-05-13,09:14,光泉 成分無調整 保久乳 200ml × 24 入,momo,,,,False,False,,未找到符合規格的商品
+2026-05-13T09:14:59,2026-05-13,09:14,光泉 成分無調整 保久乳 200ml × 24 入,shopee,,,,False,False,,尚未實作（第二階段補上）
+2026-05-13T09:14:59,2026-05-13,09:14,光泉 成分無調整 保久乳 200ml × 24 入,pxmart,,,,False,False,,尚未實作（第二階段補上）
+2026-05-13T09:14:59,2026-05-13,09:14,光泉 成分無調整 保久乳 200ml × 24 入,carrefour,,,,False,False,,尚未實作（第二階段補上）
+2026-05-13T09:14:59,2026-05-13,09:14,光泉 成分無調整 保久乳 200ml × 24 入,coupang,,,,False,False,,尚未實作（第二階段補上）
