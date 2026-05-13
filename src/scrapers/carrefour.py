@@ -1,22 +1,21 @@
 """
 家樂福線上購物爬蟲
 ====================
-目前先針對「光泉保久乳 200ml」鎖定正確商品頁：
-https://online.carrefour.com.tw/zh/%E5%85%89%E6%B3%89/1502004700124.html
+固定抓取指定商品頁，並監聽 Tagtoo 商品資料 API：
+https://db-api.tagtoo.com.tw/products
 
-目的：
-1. 避免搜尋頁誤抓活動價、推薦價、錯誤品項
-2. 先取得穩定正確價格
+目前目標：
+光泉全脂保久牛乳-200ml
+https://online.carrefour.com.tw/zh/%E5%85%89%E6%B3%89/1502004700124.html
 """
 
 from __future__ import annotations
 
 import logging
-import re
 import time
 
 from src.filter import ProductCandidate
-from src.scrapers.base import BaseScraper, clean_text, parse_price
+from src.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +26,7 @@ class CarrefourScraper(BaseScraper):
 
     FIXED_PRODUCTS = [
         {
+            "key": "1502004700124",
             "title": "光泉全脂保久牛乳-200ml",
             "url": "https://online.carrefour.com.tw/zh/%E5%85%89%E6%B3%89/1502004700124.html",
         }
@@ -36,14 +36,20 @@ class CarrefourScraper(BaseScraper):
         candidates: list[ProductCandidate] = []
 
         for item in self.FIXED_PRODUCTS:
-            c = self._parse_product_page(item["url"], item["title"])
+            c = self._capture_product_api(item)
             if c:
                 candidates.append(c)
 
-        logger.info("carrefour fixed product parsed %d candidates", len(candidates))
+        logger.info("carrefour parsed %d candidates", len(candidates))
         return candidates
 
-    def _parse_product_page(self, url: str, fallback_title: str) -> ProductCandidate | None:
+    def _capture_product_api(self, item: dict) -> ProductCandidate | None:
+        target_key = item["key"]
+        fallback_title = item["title"]
+        product_url = item["url"]
+
+        captured: list[dict] = []
+
         page = self.browser.new_page(
             viewport={"width": 1280, "height": 900},
             user_agent=(
@@ -53,77 +59,85 @@ class CarrefourScraper(BaseScraper):
             ),
         )
 
+        def handle_response(response):
+            try:
+                url = response.url
+                if "db-api.tagtoo.com.tw/products" not in url:
+                    return
+
+                data = response.json()
+
+                if isinstance(data, dict):
+                    if str(data.get("key", "")) == target_key:
+                        captured.append(data)
+
+                elif isinstance(data, list):
+                    for x in data:
+                        if isinstance(x, dict) and str(x.get("key", "")) == target_key:
+                            captured.append(x)
+
+            except Exception as e:
+                logger.debug("carrefour api response parse failed: %s", e)
+
+        page.on("response", handle_response)
+
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=45000)
-            time.sleep(4)
+            logger.info("carrefour open fixed product: %s", product_url)
+            page.goto(product_url, wait_until="domcontentloaded", timeout=45000)
 
-            full_text = clean_text(page.inner_text("body") or "")
+            # 等待 API 回來
+            for _ in range(10):
+                if captured:
+                    break
+                time.sleep(1)
 
-            title = self._extract_title(full_text) or fallback_title
-            price = self._extract_real_price(full_text)
+            # 滾動一下，避免 API 延遲載入
+            if not captured:
+                page.mouse.wheel(0, 1000)
+                time.sleep(3)
+
+            if not captured:
+                logger.warning("carrefour api product not captured: %s", target_key)
+                return None
+
+            data = captured[0]
+
+            title = (
+                data.get("title")
+                or data.get("name")
+                or fallback_title
+            )
+
+            price = data.get("sale_price")
+            if price is None:
+                price = data.get("price")
 
             if price is None:
-                logger.warning("carrefour product page price not found: %s", url)
+                logger.warning("carrefour api price missing: %s", data)
                 return None
+
+            try:
+                price = float(price)
+            except Exception:
+                logger.warning("carrefour api price invalid: %s", price)
+                return None
+
+            link = data.get("link") or product_url
+
+            logger.info("carrefour matched: %s / %s", title, price)
 
             return ProductCandidate(
                 title=title,
                 price=price,
                 list_price=price,
-                url=url,
+                url=link,
                 promo_tags=[],
+                raw=data,
             )
 
         except Exception as e:
-            logger.exception("carrefour product page failed: %s", e)
+            logger.exception("carrefour fixed product failed: %s", e)
             return None
 
         finally:
             page.close()
-
-    def _extract_title(self, text: str) -> str:
-        lines = [clean_text(x) for x in text.splitlines()]
-        lines = [x for x in lines if x]
-
-        for line in lines:
-            if "光泉" in line and ("保久" in line or "牛乳" in line) and "200" in line:
-                if "蘋果" not in line and "飲品" not in line:
-                    return line
-
-        return ""
-
-    def _extract_real_price(self, text: str) -> float | None:
-        """
-        家樂福商品頁可能同時出現：
-        - 活動文字：滿額贈、贈200
-        - 推薦商品價格
-        - 本商品價格
-
-        目前針對該商品頁，已知正確售價應接近 420。
-        所以先排除明顯錯誤的低價活動字樣。
-        """
-
-        if not text:
-            return None
-
-        prices = []
-
-        matches = re.findall(r"(?:NT\$|\$)\s*([0-9,]+)", text)
-        for m in matches:
-            try:
-                v = float(m.replace(",", ""))
-                prices.append(v)
-            except Exception:
-                pass
-
-        if not prices:
-            p = parse_price(text)
-            return p
-
-        # 排除活動贈點、錯誤低價、推薦小品項
-        filtered = [p for p in prices if p >= 300]
-
-        if filtered:
-            return min(filtered)
-
-        return min(prices)
