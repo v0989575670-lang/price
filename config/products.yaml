@@ -1,24 +1,18 @@
 products:
   - name: "光泉 成分無調整 保久乳 200ml × 24 入"
+
     short_name: "光泉保久乳200ml*24"
+
     search_keywords:
       - "光泉"
       - "保久乳"
       - "200ml"
+
     must_include:
       - "光泉"
       - "保久"
       - "200"
-    pack_keywords:
-      - "24入"
-      - "24 入"
-      - "24瓶"
-      - "24罐"
-      - "24入/箱"
-      - "24人/箱"
-      - "24入x"
-      - "24入/箱x"
-      - "箱"
+
     must_exclude:
       - "調味"
       - "調味乳"
@@ -47,6 +41,34 @@ products:
       - "高鈣"
       - "多口味"
       - "植物奶"
+
+    channel_rules:
+
+      momo:
+        must_include:
+          - "光泉"
+          - "保久"
+          - "200"
+          - "24"
+
+        pack_keywords:
+          - "24入"
+          - "24 入"
+          - "24瓶"
+          - "24罐"
+          - "24入/箱"
+          - "24人/箱"
+          - "24入x"
+          - "24入/箱x"
+          - "箱"
+
+      carrefour:
+        must_include:
+          - "光泉"
+          - "保久"
+          - "200"
+
+        pack_keywords: []
 
 recipients:
   - "shao087776@mail.kcdairy.com.tw"
